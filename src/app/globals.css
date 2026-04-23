@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+:root {
+  --igs-bg: #f7f6f2;
+  --igs-surface: #ffffff;
+  --igs-ink: #161513;
+  --igs-ink-2: #4a463f;
+  --igs-muted: #8c897f;
+  --igs-line: #ece9e1;
+  --igs-line-2: #d9d5c9;
+  --igs-accent: #c24e2f;
+  --igs-accent-ink: #ffffff;
+  --igs-ok: #6a9e7f;
+  --igs-warn: #d9b441;
+  --igs-danger: #c24e2f;
+}
+
+@theme inline {
+  --color-igs-bg: var(--igs-bg);
+  --color-igs-surface: var(--igs-surface);
+  --color-igs-ink: var(--igs-ink);
+  --color-igs-ink-2: var(--igs-ink-2);
+  --color-igs-muted: var(--igs-muted);
+  --color-igs-line: var(--igs-line);
+  --color-igs-line-2: var(--igs-line-2);
+  --color-igs-accent: var(--igs-accent);
+  --color-igs-accent-ink: var(--igs-accent-ink);
+  --color-igs-ok: var(--igs-ok);
+  --color-igs-warn: var(--igs-warn);
+  --color-igs-danger: var(--igs-danger);
+  --font-sans: var(--font-inter);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--igs-bg);
+  color: var(--igs-ink);
+  font-family: var(--font-inter), -apple-system, system-ui, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--igs-ink);
+  outline-offset: 1px;
+}
+
+/* Scrollbar sutil */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--igs-line-2);
+  border-radius: 5px;
+  border: 2px solid var(--igs-bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--igs-muted);
+}

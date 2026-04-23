@@ -1,0 +1,30 @@
+# Configuración de Netlify para el panel IGS.
+# Next.js 16 + Tailwind v4 + Supabase + MercadoPago.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--legacy-peer-deps=false"
+
+# El plugin oficial detecta Next.js automáticamente y configura
+# las funciones serverless para SSR + API routes.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Headers de seguridad básicos
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+# Cache largo para assets estáticos (Next.js los versiona con hash)
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
