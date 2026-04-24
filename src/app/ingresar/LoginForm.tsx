@@ -4,7 +4,6 @@ import IGSLogo from "@/components/ui/IGSLogo";
 import IGSButton from "@/components/ui/IGSButton";
 import IGSInput from "@/components/ui/IGSInput";
 import { IGS } from "@/lib/tokens";
-import { createClient } from "@/lib/supabase/client";
 import { loginAction, signupAction } from "./actions";
 
 type Mode = "login" | "signup";
@@ -44,25 +43,30 @@ export default function LoginForm({
 
     if (access_token && refresh_token) {
       setProcessingInvite(true);
+      // Limpiamos el hash de la URL antes de procesar (evita reentrar)
+      const cleanUrl = window.location.pathname + window.location.search;
+      window.history.replaceState(null, "", cleanUrl);
       (async () => {
         try {
-          const supabase = createClient();
-          const { error: setErr } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
+          // Mandamos los tokens al server para que setee la sesión SSR.
+          // Si lo hacemos client-side, las cookies no quedan en formato
+          // que el middleware pueda leer.
+          const res = await fetch("/auth/set-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ access_token, refresh_token }),
           });
-          if (setErr) {
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
             setProcessingInvite(false);
-            setError(setErr.message);
-            window.location.hash = "";
+            setError(data?.error ?? "No pudimos validar tu invitación.");
             return;
           }
-          // Limpiar hash y mandar al callback (que decide destino según rol)
-          window.location.replace("/auth/callback");
+          const data = await res.json();
+          window.location.replace(data.destination ?? "/dashboard");
         } catch (e) {
           setProcessingInvite(false);
           setError(e instanceof Error ? e.message : "Error procesando invitación");
-          window.location.hash = "";
         }
       })();
     }
