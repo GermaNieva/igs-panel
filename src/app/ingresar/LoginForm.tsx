@@ -1,9 +1,10 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import IGSLogo from "@/components/ui/IGSLogo";
 import IGSButton from "@/components/ui/IGSButton";
 import IGSInput from "@/components/ui/IGSInput";
 import { IGS } from "@/lib/tokens";
+import { createClient } from "@/lib/supabase/client";
 import { loginAction, signupAction } from "./actions";
 
 type Mode = "login" | "signup";
@@ -11,14 +12,61 @@ type Mode = "login" | "signup";
 export default function LoginForm({
   initialMode = "login" as Mode,
   next = "/dashboard",
+  initialError = null,
 }: {
   initialMode?: Mode;
   next?: string;
+  initialError?: string | null;
 }) {
   const [tab, setTab] = useState<Mode>(initialMode);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [pending, startTransition] = useTransition();
+  const [processingInvite, setProcessingInvite] = useState(false);
   const isLogin = tab === "login";
+
+  // Si Supabase devolvió tokens en el fragment (#access_token=...),
+  // los procesamos: seteamos sesión y enviamos al callback para que
+  // decida el destino según rol y password_set.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    const params = new URLSearchParams(hash);
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token");
+    const errorParam = params.get("error_description") || params.get("error");
+
+    if (errorParam) {
+      setError(decodeURIComponent(errorParam.replace(/\+/g, " ")));
+      window.location.hash = "";
+      return;
+    }
+
+    if (access_token && refresh_token) {
+      setProcessingInvite(true);
+      (async () => {
+        try {
+          const supabase = createClient();
+          const { error: setErr } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+          if (setErr) {
+            setProcessingInvite(false);
+            setError(setErr.message);
+            window.location.hash = "";
+            return;
+          }
+          // Limpiar hash y mandar al callback (que decide destino según rol)
+          window.location.replace("/auth/callback");
+        } catch (e) {
+          setProcessingInvite(false);
+          setError(e instanceof Error ? e.message : "Error procesando invitación");
+          window.location.hash = "";
+        }
+      })();
+    }
+  }, []);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -54,6 +102,28 @@ export default function LoginForm({
           <IGSLogo size={26} />
         </div>
 
+        {processingInvite ? (
+          <div style={{ margin: "auto", padding: "40px 0", textAlign: "center" }}>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                margin: "0 auto 18px",
+                borderRadius: 24,
+                border: `3px solid ${IGS.line2}`,
+                borderTopColor: IGS.accent,
+                animation: "spin 0.9s linear infinite",
+              }}
+            />
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>
+              Validando tu invitación…
+            </div>
+            <div style={{ fontSize: 12, color: IGS.muted }}>
+              En un instante te llevamos a configurar tu contraseña.
+            </div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        ) : (
         <form
           onSubmit={handleSubmit}
           style={{ maxWidth: 380, width: "100%", margin: "auto", padding: "40px 0" }}
@@ -233,6 +303,7 @@ export default function LoginForm({
             </a>
           </div>
         </form>
+        )}
 
         <div style={{ fontSize: 11, color: IGS.muted, marginTop: "auto" }}>
           © {new Date().getFullYear()} IGS · San Fernando del Valle, Catamarca
