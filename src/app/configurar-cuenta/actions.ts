@@ -1,6 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type Result = { error: string } | undefined;
 
@@ -23,6 +24,14 @@ export async function setPasswordAction(formData: FormData): Promise<Result> {
 
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { error: error.message };
+
+  // Marcar la cuenta como "tiene contraseña" para que el callback no la mande
+  // de vuelta acá la próxima vez.
+  const admin = createAdminClient();
+  await admin
+    .from("profiles")
+    .update({ password_set: true })
+    .eq("id", user.id);
 
   // Determinar a dónde mandar al usuario según su rol
   const { data: profile } = await supabase

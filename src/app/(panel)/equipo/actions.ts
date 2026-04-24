@@ -60,7 +60,9 @@ export async function inviteStaffAction(input: {
 
   const admin = createAdminClient();
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  const redirectTo = `${baseUrl}/auth/callback?next=/configurar-cuenta`;
+  // Sin query string — el callback decide solo según rol y password_set.
+  // (Supabase a veces strip-ea las query strings del redirect_to.)
+  const redirectTo = `${baseUrl}/auth/callback`;
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: {
       bar_id: ctx.barId,
