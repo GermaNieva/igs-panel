@@ -59,8 +59,8 @@ export async function inviteStaffAction(input: {
   }
 
   const admin = createAdminClient();
-  const redirectTo =
-    (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000") + "/ingresar";
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const redirectTo = `${baseUrl}/auth/callback?next=/configurar-cuenta`;
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     data: {
       bar_id: ctx.barId,

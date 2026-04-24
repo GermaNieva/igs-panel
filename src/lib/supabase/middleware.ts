@@ -6,6 +6,7 @@ const PUBLIC_PREFIXES = [
   "/ingresar",
   "/carta", // carta pública del cliente
   "/api/mp-webhook",
+  "/auth", // callback de Supabase Auth (invitaciones, OAuth, recovery)
   "/_next",
   "/favicon",
 ];
