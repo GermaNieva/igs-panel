@@ -177,5 +177,14 @@ export async function getAuthorizedPayment(id: string | number): Promise<Authori
 }
 
 // ============== Plan price ==============
-export const PLAN_PRICE = 30000;
+// Precio mensual del plan en ARS. Se lee de MP_PLAN_PRICE_ARS (entero) si está
+// definido — útil para bajarlo temporalmente en pruebas reales sin redeployar
+// el código. Si no, defaultea a 30000.
+function readPlanPrice(): number {
+  const raw = process.env.MP_PLAN_PRICE_ARS;
+  if (!raw) return 30000;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 30000;
+}
+export const PLAN_PRICE = readPlanPrice();
 export const PLAN_NAME = "IGS Comedor — plan mensual";
