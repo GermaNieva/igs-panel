@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useTransition, useCallback, useRef } from "react";
+import { useState, useEffect, useTransition, useCallback } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import IGSLogo from "@/components/ui/IGSLogo";
@@ -51,8 +51,9 @@ export default function MozoClient({ barId, waiterName, initialOrders }: Props) 
   const [orders, setOrders] = useState<ActiveOrder[]>(initialOrders);
   const [filter, setFilter] = useState<"calls" | "kitchen" | "all">("calls");
   const [openId, setOpenId] = useState<string | null>(null);
-  const [now, setNow] = useState(Date.now());
-  const supabase = useRef(createClient()).current;
+  const [now, setNow] = useState<number>(() => Date.now());
+  // useState lazy init en lugar de useRef.current — evita acceder a refs durante render.
+  const [supabase] = useState(() => createClient());
 
   // Cronómetro
   useEffect(() => {

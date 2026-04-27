@@ -52,13 +52,17 @@ export default function CartaCliente({ bar, categories, items, mesa }: Props) {
 
   // Persistir carrito en localStorage por mesa+bar
   const cartKey = `igs-cart-${bar.slug}-${mesa?.number ?? "general"}`;
+  // Hidratamos el carrito desde localStorage en mount. cartKey depende de props
+  // que no cambian post-mount; localStorage no existe en SSR. La alternativa
+  // pura (useSyncExternalStore) es desproporcionada.
+  /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(cartKey);
       if (raw) setCart(JSON.parse(raw));
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     try {
       localStorage.setItem(cartKey, JSON.stringify(cart));

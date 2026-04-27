@@ -36,6 +36,9 @@ export default function LoginForm({
     const errorParam = params.get("error_description") || params.get("error");
 
     if (errorParam) {
+      // setState en mount-effect: leemos parámetros del fragment (#) que solo existen
+      // post-redirect del browser, no en SSR. Es una hidratación one-shot legítima.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError(decodeURIComponent(errorParam.replace(/\+/g, " ")));
       window.location.hash = "";
       return;

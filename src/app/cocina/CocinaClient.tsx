@@ -1,9 +1,9 @@
 "use client";
-import { useState, useEffect, useCallback, useRef, useTransition } from "react";
+import { useState, useEffect, useCallback, useTransition } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import IGSLogo from "@/components/ui/IGSLogo";
-import { IGS, STATIONS, type StationId } from "@/lib/tokens";
+import { STATIONS, type StationId } from "@/lib/tokens";
 import { toggleItemReadyAction, markOrderReadyAction } from "./actions";
 import { logoutAction } from "@/app/ingresar/actions";
 
@@ -36,10 +36,11 @@ type Props = {
 
 export default function CocinaClient({ barId, initial }: Props) {
   const [orders, setOrders] = useState<KitchenOrder[]>(initial);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState<number>(() => Date.now());
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
-  const supabase = useRef(createClient()).current;
+  // useState lazy init en lugar de useRef.current — evita acceder a refs durante render.
+  const [supabase] = useState(() => createClient());
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);

@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition, useMemo, useEffect } from "react";
+import { useState, useTransition, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import IGSButton from "@/components/ui/IGSButton";
 import IGSInput from "@/components/ui/IGSInput";
@@ -58,14 +58,12 @@ export default function MesasClient({ slug, barName, baseUrl, zones, mesas, llam
   const [newZoneOpen, setNewZoneOpen] = useState(false);
   const [newZoneName, setNewZoneName] = useState("");
 
-  useEffect(() => {
-    if (selectedId && !mesas.find((m) => m.id === selectedId)) setSelectedId(null);
-  }, [mesas, selectedId]);
-
   const filteredMesas = useMemo(
     () => mesas.filter((m) => activeZone === null || m.zone_id === activeZone),
     [mesas, activeZone]
   );
+  // Si la mesa seleccionada ya no existe, devolvemos null en lugar de hacer
+  // setSelectedId(null) en un effect (rompe react-hooks/set-state-in-effect).
   const selected = useMemo(
     () => (selectedId ? mesas.find((m) => m.id === selectedId) ?? null : null),
     [selectedId, mesas]

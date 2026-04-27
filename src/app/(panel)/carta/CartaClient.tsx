@@ -1,5 +1,5 @@
 "use client";
-import { useState, useTransition, useRef, useMemo, useEffect } from "react";
+import { useState, useTransition, useRef, useMemo } from "react";
 import IGSButton from "@/components/ui/IGSButton";
 import IGSBadge from "@/components/ui/IGSBadge";
 import IGSInput from "@/components/ui/IGSInput";
@@ -41,22 +41,18 @@ export default function CartaClient({ categories, items }: Props) {
   const [newCatOpen, setNewCatOpen] = useState(false);
   const [newCatName, setNewCatName] = useState("");
 
-  // Reset selección cuando cambia categoría
-  useEffect(() => {
-    if (selected) {
-      const it = items.find((i) => i.id === selected);
-      if (!it || it.category_id !== activeCat) setSelected(null);
-    }
-  }, [activeCat, selected, items]);
-
   const filteredItems = useMemo(
     () => items.filter((i) => i.category_id === activeCat),
     [items, activeCat]
   );
-  const sel = useMemo(
-    () => (selected ? items.find((i) => i.id === selected) ?? null : null),
-    [selected, items]
-  );
+  // Derivamos sel en lugar de hacer setSelected(null) en un effect — esa pauta rompe
+  // react-hooks/set-state-in-effect en React 19.
+  const sel = useMemo(() => {
+    if (!selected) return null;
+    const it = items.find((i) => i.id === selected);
+    if (!it || it.category_id !== activeCat) return null;
+    return it;
+  }, [selected, items, activeCat]);
 
   function flash(ok: boolean, msg: string) {
     setFeedback({ ok, msg });
