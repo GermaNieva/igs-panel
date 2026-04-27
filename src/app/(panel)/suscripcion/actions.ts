@@ -45,12 +45,28 @@ async function ctxFor(): Promise<Ctx> {
   };
 }
 
-export async function startSubscriptionAction(): Promise<Result<{ init_point: string }>> {
+export async function startSubscriptionAction(
+  input?: { payerEmailOverride?: string } | FormData
+): Promise<Result<{ init_point: string }>> {
   const ctx = await ctxFor();
   if (!ctx.ok) return ctx;
 
   if (!ctx.barOwnerEmail) {
     return { ok: false, error: "Tu cuenta no tiene email registrado." };
+  }
+
+  // Permitir que el dueño use un email de MP distinto al de su login del panel.
+  // Causa #1 más común de "Algo salió mal" en el checkout: el email enviado en el
+  // body no coincide con el de la cuenta de MP con la que se loguea el comprador.
+  const rawOverride =
+    input instanceof FormData
+      ? (input.get("payerEmail") as string | null) ?? ""
+      : input?.payerEmailOverride ?? "";
+  const trimmedOverride = rawOverride.trim().toLowerCase();
+  const payerEmail = trimmedOverride || ctx.barOwnerEmail;
+
+  if (trimmedOverride && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedOverride)) {
+    return { ok: false, error: "El email de MercadoPago no es válido." };
   }
 
   // Si ya hay una preapproval activa, no creamos otra
@@ -69,11 +85,12 @@ export async function startSubscriptionAction(): Promise<Result<{ init_point: st
 
   try {
     const pre = await createPreapproval({
-      payer_email: ctx.barOwnerEmail,
+      payer_email: payerEmail,
       reason: `${PLAN_NAME} — ${bar.name}`,
       amount: PLAN_PRICE,
       external_reference: ctx.barId,
       back_url: `${baseUrl}/suscripcion?mp=ok`,
+      notification_url: `${baseUrl}/api/mp-webhook`,
     });
 
     // Guardar el ID en el bar para poder consultarlo después

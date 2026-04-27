@@ -17,6 +17,7 @@ export type SubscriptionData = {
   barName: string;
   planStatus: PlanStatus;
   trialEndsAt: string | null;
+  trialDaysLeft: number;
   hasPreapproval: boolean;
   canManage: boolean;
   ownerEmail: string;
@@ -65,12 +66,17 @@ export default function SuscripcionClient({
       ? "Volviste de MercadoPago. Si autorizaste el pago, en unos minutos vamos a activar tu plan automáticamente."
       : null
   );
+  const [showEmailOverride, setShowEmailOverride] = useState(false);
+  const [payerEmail, setPayerEmail] = useState("");
 
   function handleStart() {
     setError(null);
     setInfo(null);
+    const override = payerEmail.trim();
     startTransition(async () => {
-      const res = await startSubscriptionAction();
+      const res = await startSubscriptionAction(
+        override ? { payerEmailOverride: override } : undefined
+      );
       if (res.ok) {
         window.location.href = res.data.init_point;
       } else {
@@ -112,9 +118,7 @@ export default function SuscripcionClient({
   const isActive = data.planStatus === "active";
   const isPaused = data.planStatus === "paused";
   const isPastDue = data.planStatus === "past_due";
-  const trialDaysLeft = data.trialEndsAt
-    ? Math.max(0, Math.ceil((new Date(data.trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
-    : 0;
+  const trialDaysLeft = data.trialDaysLeft;
 
   return (
     <div style={{ padding: "28px 32px", maxWidth: 1100 }}>
@@ -266,23 +270,85 @@ export default function SuscripcionClient({
               }}
             >
               {(isTrialing || data.planStatus === "cancelled") && (
-                <button
-                  onClick={handleStart}
-                  disabled={pending}
-                  style={{
-                    padding: "10px 18px",
-                    background: "#fff",
-                    color: IGS.ink,
-                    border: "none",
-                    borderRadius: 22,
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: pending ? "wait" : "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {pending ? "Conectando con MercadoPago..." : "🔓 Activar plan"}
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                    <button
+                      onClick={handleStart}
+                      disabled={pending}
+                      style={{
+                        padding: "10px 18px",
+                        background: "#fff",
+                        color: IGS.ink,
+                        border: "none",
+                        borderRadius: 22,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: pending ? "wait" : "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {pending ? "Conectando con MercadoPago..." : "🔓 Activar plan"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailOverride((v) => !v)}
+                      style={{
+                        padding: "8px 12px",
+                        background: "transparent",
+                        color: "rgba(255,255,255,0.6)",
+                        border: "none",
+                        borderRadius: 8,
+                        fontSize: 11.5,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      {showEmailOverride ? "Usar mi email del panel" : "¿Pagar con otro email de MercadoPago?"}
+                    </button>
+                  </div>
+                  {showEmailOverride && (
+                    <div
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 6,
+                      }}
+                    >
+                      <label
+                        style={{
+                          fontSize: 11,
+                          color: "rgba(255,255,255,0.7)",
+                          letterSpacing: 0.3,
+                        }}
+                      >
+                        Email de la cuenta de MercadoPago con la que vas a pagar
+                      </label>
+                      <input
+                        type="email"
+                        value={payerEmail}
+                        onChange={(e) => setPayerEmail(e.target.value)}
+                        placeholder={data.ownerEmail || "ej: TESTUSER1234@testuser.com"}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: "1px solid rgba(255,255,255,0.15)",
+                          background: "rgba(0,0,0,0.25)",
+                          color: "#fff",
+                          fontSize: 12.5,
+                          fontFamily: "inherit",
+                          outline: "none",
+                        }}
+                      />
+                      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.55)", lineHeight: 1.4 }}>
+                        Si lo dejás vacío usamos <b>{data.ownerEmail}</b>. El email tiene que coincidir con la cuenta de MP con la que iniciás sesión en el checkout, sino MP rechaza el pago.
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
               {(isActive || isPastDue) && (
                 <>

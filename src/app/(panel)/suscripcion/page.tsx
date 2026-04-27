@@ -2,6 +2,12 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import SuscripcionClient, { type SubscriptionData, type Invoice } from "./SuscripcionClient";
 
+function daysUntil(iso: string | null): number {
+  if (!iso) return 0;
+  const ms = new Date(iso).getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
+}
+
 export default async function SuscripcionPage({
   searchParams,
 }: {
@@ -37,10 +43,14 @@ export default async function SuscripcionPage({
     .order("period_start", { ascending: false })
     .limit(12);
 
+  const trialEndsAt = bar?.trial_ends_at ?? null;
+  const trialDaysLeft = daysUntil(trialEndsAt);
+
   const data: SubscriptionData = {
     barName: bar?.name ?? "Tu bar",
     planStatus: (bar?.plan_status ?? "trialing") as SubscriptionData["planStatus"],
-    trialEndsAt: bar?.trial_ends_at ?? null,
+    trialEndsAt,
+    trialDaysLeft,
     hasPreapproval: !!bar?.mp_preapproval_id,
     canManage: ["owner", "super_admin"].includes(profile.role),
     ownerEmail: user.email ?? "",

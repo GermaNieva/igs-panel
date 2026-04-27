@@ -11,8 +11,16 @@ function getAccessToken(): string {
 
 type MpRequestInit = Omit<RequestInit, "body"> & { body?: object };
 
+const isDev = process.env.NODE_ENV !== "production";
+
 async function mpRequest<T>(path: string, init: MpRequestInit = {}): Promise<T> {
   const { body: bodyObj, headers, ...rest } = init;
+  const method = (rest.method ?? "GET").toUpperCase();
+
+  if (isDev) {
+    // Logging para diagnosticar rechazos. Nunca incluye el Bearer.
+    console.log("[mp] →", method, path, bodyObj ? JSON.stringify(bodyObj) : "");
+  }
 
   const res = await fetch(`${MP_BASE}${path}`, {
     ...rest,
@@ -31,6 +39,10 @@ async function mpRequest<T>(path: string, init: MpRequestInit = {}): Promise<T> 
     data = text ? JSON.parse(text) : null;
   } catch {
     data = text;
+  }
+
+  if (isDev) {
+    console.log("[mp] ←", res.status, typeof data === "string" ? data : JSON.stringify(data));
   }
 
   if (!res.ok) {
@@ -53,6 +65,7 @@ type CreatePreapprovalInput = {
   amount: number;
   external_reference: string; // bar_id
   back_url?: string; // opcional — MP exige HTTPS público; si es localhost lo omitimos
+  notification_url?: string; // opcional — idem; MP exige HTTPS público para que dispare el webhook
 };
 
 export type Preapproval = {
@@ -77,8 +90,11 @@ export type Preapproval = {
 };
 
 export async function createPreapproval(input: CreatePreapprovalInput): Promise<Preapproval> {
-  // MP exige back_url HTTPS público — si es localhost / vacío, lo omitimos.
+  // MP exige back_url y notification_url HTTPS públicos — si son localhost / vacío, los omitimos.
   const validBackUrl = isPublicHttpsUrl(input.back_url) ? input.back_url : undefined;
+  const validNotificationUrl = isPublicHttpsUrl(input.notification_url)
+    ? input.notification_url
+    : undefined;
 
   const body: Record<string, unknown> = {
     reason: input.reason,
@@ -93,6 +109,7 @@ export async function createPreapproval(input: CreatePreapprovalInput): Promise<
     status: "pending",
   };
   if (validBackUrl) body.back_url = validBackUrl;
+  if (validNotificationUrl) body.notification_url = validNotificationUrl;
 
   return mpRequest<Preapproval>("/preapproval", {
     method: "POST",
