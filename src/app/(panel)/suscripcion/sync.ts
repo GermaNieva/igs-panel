@@ -6,9 +6,10 @@ import { getPreapproval } from "@/lib/mercadopago";
 // Se invoca cuando el usuario vuelve del checkout con `?preapproval_id=...`,
 // para no depender de que el webhook llegue rápido.
 //
-// Idempotente: lee el preapproval, valida que su `external_reference` sea el
-// bar esperado, y actualiza `plan_status` + `mp_preapproval_id`. Si está en
-// `pending` no toca el plan_status (todavía no autorizó).
+// Reglas (mismas que el webhook para evitar inconsistencias):
+//  - `authorized` SIEMPRE toma control: pasa plan_status=active y mp_preapproval_id=pre.id
+//  - `paused` / `cancelled` solo aplican si el preapproval coincide con el current del bar
+//  - `pending` no toca el plan_status
 export async function syncPreapprovalToBar(
   preapprovalId: string,
   expectedBarId: string
@@ -24,22 +25,55 @@ export async function syncPreapprovalToBar(
     return { ok: false, error: "El preapproval no corresponde a este bar." };
   }
 
+  const admin = createAdminClient();
+
+  if (pre.status === "authorized") {
+    await admin
+      .from("bars")
+      .update({
+        plan_status: "active",
+        mp_preapproval_id: pre.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", expectedBarId);
+    return { ok: true, status: pre.status };
+  }
+
+  // Para otros estados: solo modificar si es el preapproval current.
+  const { data: bar } = await admin
+    .from("bars")
+    .select("mp_preapproval_id")
+    .eq("id", expectedBarId)
+    .maybeSingle();
+
+  const isCurrent = bar?.mp_preapproval_id === pre.id;
+
+  if (pre.status === "pending") {
+    // Guardamos el id solo si el bar no tiene ningún preapproval asociado aún.
+    if (!bar?.mp_preapproval_id) {
+      await admin
+        .from("bars")
+        .update({ mp_preapproval_id: pre.id, updated_at: new Date().toISOString() })
+        .eq("id", expectedBarId);
+    }
+    return { ok: true, status: pre.status };
+  }
+
+  if (!isCurrent) return { ok: true, status: pre.status };
+
   const newPlanStatus =
-    pre.status === "authorized"
-      ? "active"
-      : pre.status === "paused"
+    pre.status === "paused"
       ? "paused"
       : pre.status === "cancelled"
       ? "cancelled"
       : null;
 
-  const admin = createAdminClient();
-  const updates: Record<string, unknown> = {
-    mp_preapproval_id: pre.id,
-    updated_at: new Date().toISOString(),
-  };
-  if (newPlanStatus) updates.plan_status = newPlanStatus;
-  await admin.from("bars").update(updates).eq("id", expectedBarId);
+  if (newPlanStatus) {
+    await admin
+      .from("bars")
+      .update({ plan_status: newPlanStatus, updated_at: new Date().toISOString() })
+      .eq("id", expectedBarId);
+  }
 
   return { ok: true, status: pre.status };
 }

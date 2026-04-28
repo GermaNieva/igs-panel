@@ -7,6 +7,8 @@ import {
   pausePreapproval,
   resumePreapproval,
   getCheckoutUrlForPlan,
+  searchPreapprovalsByExternalRef,
+  searchAuthorizedPaymentsByPreapproval,
 } from "@/lib/mercadopago";
 
 type Result<T = void> =
@@ -127,6 +129,106 @@ export async function resumeSubscriptionAction(): Promise<Result> {
   } catch (e) {
     return { ok: false, error: humanizeMpError(e) };
   }
+}
+
+// Reconciliación manual: busca todas las suscripciones del bar en MP, toma la
+// más reciente autorizada (si la hay) como current, y refresca las invoices
+// asociadas. Sirve cuando el webhook se perdió o el bar quedó con un
+// mp_preapproval_id de un intento rechazado.
+export async function refreshSubscriptionAction(): Promise<
+  Result<{ status: string; invoicesUpdated: number }>
+> {
+  const ctx = await ctxFor();
+  if (!ctx.ok) return ctx;
+
+  let preapprovals;
+  try {
+    preapprovals = await searchPreapprovalsByExternalRef(ctx.barId);
+  } catch (e) {
+    return { ok: false, error: humanizeMpError(e) };
+  }
+
+  if (preapprovals.length === 0) {
+    return {
+      ok: false,
+      error: "No encontramos ninguna suscripción tuya en MercadoPago para este bar.",
+    };
+  }
+
+  // Ordenar por date_created descendente (más reciente primero).
+  const sorted = [...preapprovals].sort(
+    (a, b) => new Date(b.date_created).getTime() - new Date(a.date_created).getTime()
+  );
+
+  // Preferimos la más reciente autorizada; si no hay, la más reciente.
+  const target = sorted.find((p) => p.status === "authorized") ?? sorted[0];
+
+  const newPlanStatus =
+    target.status === "authorized"
+      ? "active"
+      : target.status === "paused"
+      ? "paused"
+      : target.status === "cancelled"
+      ? "cancelled"
+      : "trialing"; // pending u otro
+
+  const admin = createAdminClient();
+  await admin
+    .from("bars")
+    .update({
+      plan_status: newPlanStatus,
+      mp_preapproval_id: target.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ctx.barId);
+
+  // Refrescar invoices del preapproval target. Si la API de search falla, no
+  // es fatal — el plan_status ya quedó bien.
+  let invoicesUpdated = 0;
+  try {
+    const payments = await searchAuthorizedPaymentsByPreapproval(target.id);
+    for (const ap of payments) {
+      const isPaid = ap.payment_state === "approved";
+      const isFailed = ap.payment_state === "rejected";
+
+      const periodStart = ap.date_created.slice(0, 10);
+      const periodEndDate = new Date(ap.date_created);
+      periodEndDate.setMonth(periodEndDate.getMonth() + 1);
+      const periodEnd = periodEndDate.toISOString().slice(0, 10);
+
+      const { data: existing } = await admin
+        .from("invoices")
+        .select("id")
+        .eq("external_id", String(ap.id))
+        .maybeSingle();
+
+      const invoiceRow = {
+        bar_id: ctx.barId,
+        external_id: String(ap.id),
+        mp_payment_id: ap.payment_id ? String(ap.payment_id) : null,
+        amount: ap.transaction_amount,
+        period_start: periodStart,
+        period_end: periodEnd,
+        status: (isPaid ? "paid" : isFailed ? "failed" : "pending") as
+          | "paid"
+          | "failed"
+          | "pending",
+        paid_at: isPaid ? new Date(ap.last_modified).toISOString() : null,
+      };
+
+      if (existing) {
+        await admin.from("invoices").update(invoiceRow).eq("id", existing.id);
+      } else {
+        await admin.from("invoices").insert(invoiceRow);
+      }
+      invoicesUpdated++;
+    }
+  } catch (e) {
+    console.error("[refresh] error syncing invoices:", e);
+  }
+
+  revalidatePath("/suscripcion");
+  return { ok: true, data: { status: target.status, invoicesUpdated } };
 }
 
 // Traduce errores comunes de MP a mensajes accionables en español.

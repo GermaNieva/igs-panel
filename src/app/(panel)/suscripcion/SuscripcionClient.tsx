@@ -9,6 +9,7 @@ import {
   cancelSubscriptionAction,
   pauseSubscriptionAction,
   resumeSubscriptionAction,
+  refreshSubscriptionAction,
 } from "./actions";
 
 export type PlanStatus = "trialing" | "active" | "past_due" | "paused" | "cancelled";
@@ -103,6 +104,35 @@ export default function SuscripcionClient({
     } catch {
       // ignorar
     }
+  }
+
+  function handleRefresh() {
+    setError(null);
+    setInfo(null);
+    setShareUrl(null);
+    startTransition(async () => {
+      const res = await refreshSubscriptionAction();
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      const { status, invoicesUpdated } = res.data;
+      const statusLabel =
+        status === "authorized"
+          ? "✓ Suscripción autorizada — tu plan está activo."
+          : status === "paused"
+          ? "Suscripción pausada en MercadoPago."
+          : status === "cancelled"
+          ? "Tu suscripción está cancelada en MercadoPago."
+          : status === "pending"
+          ? "MercadoPago todavía está procesando tu pago. Probá de nuevo en unos minutos."
+          : `Estado en MercadoPago: ${status}.`;
+      setInfo(
+        invoicesUpdated > 0
+          ? `${statusLabel} (${invoicesUpdated} factura${invoicesUpdated === 1 ? "" : "s"} sincronizada${invoicesUpdated === 1 ? "" : "s"})`
+          : statusLabel
+      );
+    });
   }
 
   function handleCancel() {
@@ -516,6 +546,32 @@ export default function SuscripcionClient({
               }}
             >
               Todavía no configuraste un método de pago. Tocá <b>Activar plan</b> para hacerlo.
+            </div>
+          )}
+
+          {data.canManage && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${IGS.line}` }}>
+              <button
+                onClick={handleRefresh}
+                disabled={pending}
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  background: "transparent",
+                  color: IGS.ink2,
+                  border: `1px solid ${IGS.line2}`,
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: pending ? "wait" : "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {pending ? "Verificando..." : "↻ Verificar estado en MercadoPago"}
+              </button>
+              <div style={{ fontSize: 10.5, color: IGS.muted, marginTop: 6, lineHeight: 1.4 }}>
+                Si pagaste y no ves tu plan activo, tocá acá para reconciliar con MP.
+              </div>
             </div>
           )}
 

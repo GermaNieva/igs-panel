@@ -131,6 +131,20 @@ export async function getPreapproval(id: string): Promise<Preapproval> {
   return mpRequest<Preapproval>(`/preapproval/${id}`);
 }
 
+type MpSearchResult<T> = {
+  paging?: { total: number; limit: number; offset: number };
+  results: T[];
+};
+
+// Busca todas las preapprovals de un bar usando external_reference. Útil para
+// reconciliar el estado cuando un webhook se perdió o quedó un preapproval
+// rechazado guardado por error en mp_preapproval_id.
+export async function searchPreapprovalsByExternalRef(externalRef: string): Promise<Preapproval[]> {
+  const params = new URLSearchParams({ external_reference: externalRef, limit: "20" });
+  const res = await mpRequest<MpSearchResult<Preapproval>>(`/preapproval/search?${params.toString()}`);
+  return res.results ?? [];
+}
+
 export async function cancelPreapproval(id: string): Promise<Preapproval> {
   return mpRequest<Preapproval>(`/preapproval/${id}`, {
     method: "PUT",
@@ -171,6 +185,18 @@ export type AuthorizedPayment = {
 
 export async function getAuthorizedPayment(id: string | number): Promise<AuthorizedPayment> {
   return mpRequest<AuthorizedPayment>(`/authorized_payments/${id}`);
+}
+
+// Lista los authorized_payments asociados a un preapproval. Se usa para
+// refrescar el historial de invoices manualmente.
+export async function searchAuthorizedPaymentsByPreapproval(
+  preapprovalId: string
+): Promise<AuthorizedPayment[]> {
+  const params = new URLSearchParams({ preapproval_id: preapprovalId, limit: "50" });
+  const res = await mpRequest<MpSearchResult<AuthorizedPayment>>(
+    `/authorized_payments/search?${params.toString()}`
+  );
+  return res.results ?? [];
 }
 
 // ============== Plan price ==============

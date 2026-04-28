@@ -50,25 +50,47 @@ async function handlePreapprovalEvent(preapprovalId: string) {
   if (!barId) return;
 
   const admin = createAdminClient();
-  // `pending` no degrada el plan_status — solo cambiamos cuando MP confirma una
-  // transición real (autorizado, pausado o cancelado). Así un evento de un
-  // intento abandonado no rompe el trialing/active del bar.
+
+  // Regla: `authorized` siempre toma control — es el estado deseado y reescribe
+  // mp_preapproval_id al id del preapproval autorizado. Esto evita que un
+  // evento `cancelled` de un intento rechazado anterior pise un `authorized`
+  // posterior si llegan fuera de orden.
+  if (pre.status === "authorized") {
+    await admin
+      .from("bars")
+      .update({
+        plan_status: "active",
+        mp_preapproval_id: pre.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", barId);
+    return;
+  }
+
+  // Para `paused` / `cancelled` solo aplicamos si el evento corresponde al
+  // preapproval actual del bar. Eventos de preapprovals abandonados/rechazados
+  // viejos se ignoran.
+  const { data: bar } = await admin
+    .from("bars")
+    .select("mp_preapproval_id")
+    .eq("id", barId)
+    .maybeSingle();
+  if (!bar) return;
+  if (bar.mp_preapproval_id !== pre.id) return;
+
   const newStatus =
-    pre.status === "authorized"
-      ? "active"
-      : pre.status === "paused"
+    pre.status === "paused"
       ? "paused"
       : pre.status === "cancelled"
       ? "cancelled"
       : null;
 
-  const updates: Record<string, unknown> = {
-    mp_preapproval_id: pre.id,
-    updated_at: new Date().toISOString(),
-  };
-  if (newStatus) updates.plan_status = newStatus;
+  if (!newStatus) return;
 
-  await admin.from("bars").update(updates).eq("id", barId);
+  await admin
+    .from("bars")
+    .update({ plan_status: newStatus, updated_at: new Date().toISOString() })
+    .eq("id", barId);
 }
 
 async function handleAuthorizedPaymentEvent(authorizedPaymentId: string) {
@@ -113,10 +135,20 @@ async function handleAuthorizedPaymentEvent(authorizedPaymentId: string) {
   }
 
   // Si el pago se aprobó, asegurar plan_status='active'
-  // Si falló, marcar past_due
+  // Si falló, marcar past_due (solo si es el preapproval current)
   if (isPaid) {
-    await admin.from("bars").update({ plan_status: "active" }).eq("id", barId);
+    await admin
+      .from("bars")
+      .update({ plan_status: "active", mp_preapproval_id: pre.id })
+      .eq("id", barId);
   } else if (isFailed) {
-    await admin.from("bars").update({ plan_status: "past_due" }).eq("id", barId);
+    const { data: bar } = await admin
+      .from("bars")
+      .select("mp_preapproval_id")
+      .eq("id", barId)
+      .maybeSingle();
+    if (bar?.mp_preapproval_id === pre.id) {
+      await admin.from("bars").update({ plan_status: "past_due" }).eq("id", barId);
+    }
   }
 }
