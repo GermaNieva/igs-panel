@@ -32,7 +32,7 @@ export default async function SuscripcionPage({
 
   const { data: bar } = await supabase
     .from("bars")
-    .select("name, plan_status, trial_ends_at, mp_preapproval_id, tax_info")
+    .select("name, plan_status, trial_ends_at, mp_preapproval_id, payer_email, tax_info")
     .eq("id", profile.bar_id)
     .maybeSingle();
 
@@ -54,6 +54,7 @@ export default async function SuscripcionPage({
     hasPreapproval: !!bar?.mp_preapproval_id,
     canManage: ["owner", "super_admin"].includes(profile.role),
     ownerEmail: user.email ?? "",
+    savedPayerEmail: bar?.payer_email ?? null,
   };
 
   const invoiceList: Invoice[] = (invoices ?? []).map((i) => ({

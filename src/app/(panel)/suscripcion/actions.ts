@@ -93,12 +93,14 @@ export async function startSubscriptionAction(
       notification_url: `${baseUrl}/api/mp-webhook`,
     });
 
-    // Guardar el ID en el bar para poder consultarlo después
+    // Guardar el ID y el payer_email usado para que la próxima vez aparezca
+    // pre-cargado en el form (UX: el dueño no tiene que reescribirlo).
     const admin = createAdminClient();
     await admin
       .from("bars")
       .update({
         mp_preapproval_id: pre.id,
+        payer_email: payerEmail,
       })
       .eq("id", ctx.barId);
 

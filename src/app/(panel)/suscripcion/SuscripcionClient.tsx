@@ -21,6 +21,7 @@ export type SubscriptionData = {
   hasPreapproval: boolean;
   canManage: boolean;
   ownerEmail: string;
+  savedPayerEmail: string | null;
 };
 
 export type Invoice = {
@@ -66,17 +67,23 @@ export default function SuscripcionClient({
       ? "Volviste de MercadoPago. Si autorizaste el pago, en unos minutos vamos a activar tu plan automáticamente."
       : null
   );
-  const [showEmailOverride, setShowEmailOverride] = useState(false);
-  const [payerEmail, setPayerEmail] = useState("");
+  // Pre-cargamos con el último email usado, o si no con el email de login.
+  // El usuario puede editarlo libremente — la única regla es que coincida con
+  // la cuenta MP que va a usar para pagar.
+  const [payerEmail, setPayerEmail] = useState<string>(
+    data.savedPayerEmail || data.ownerEmail || ""
+  );
 
   function handleStart() {
     setError(null);
     setInfo(null);
     const override = payerEmail.trim();
+    if (!override) {
+      setError("Necesitamos el email de la cuenta MercadoPago que va a pagar.");
+      return;
+    }
     startTransition(async () => {
-      const res = await startSubscriptionAction(
-        override ? { payerEmailOverride: override } : undefined
-      );
+      const res = await startSubscriptionAction({ payerEmailOverride: override });
       if (res.ok) {
         window.location.href = res.data.init_point;
       } else {
@@ -270,8 +277,56 @@ export default function SuscripcionClient({
               }}
             >
               {(isTrialing || data.planStatus === "cancelled") && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
+                  <div
+                    style={{
+                      background: "rgba(255,255,255,0.06)",
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <label
+                      htmlFor="payer-email"
+                      style={{
+                        fontSize: 11.5,
+                        color: "rgba(255,255,255,0.85)",
+                        letterSpacing: 0.3,
+                        fontWeight: 600,
+                      }}
+                    >
+                      Email de la cuenta de MercadoPago que va a pagar
+                    </label>
+                    <input
+                      id="payer-email"
+                      type="email"
+                      value={payerEmail}
+                      onChange={(e) => setPayerEmail(e.target.value)}
+                      placeholder="ej: cuenta-mp@gmail.com"
+                      autoComplete="email"
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        background: "rgba(0,0,0,0.28)",
+                        color: "#fff",
+                        fontSize: 13,
+                        fontFamily: "inherit",
+                        outline: "none",
+                      }}
+                    />
+                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", lineHeight: 1.5 }}>
+                      Puede ser tu propio email o el de otra persona (ej: padre, socio).
+                      Reglas de MercadoPago para que el pago no sea rechazado:
+                      <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
+                        <li>Este email <b>tiene que coincidir</b> con el de la cuenta de MP con la que se inicia sesión en el checkout.</li>
+                        <li>La <b>tarjeta debe estar a nombre</b> del titular de esa cuenta de MP (sino antifraude rechaza).</li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div>
                     <button
                       onClick={handleStart}
                       disabled={pending}
@@ -289,65 +344,7 @@ export default function SuscripcionClient({
                     >
                       {pending ? "Conectando con MercadoPago..." : "🔓 Activar plan"}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowEmailOverride((v) => !v)}
-                      style={{
-                        padding: "8px 12px",
-                        background: "transparent",
-                        color: "rgba(255,255,255,0.6)",
-                        border: "none",
-                        borderRadius: 8,
-                        fontSize: 11.5,
-                        cursor: "pointer",
-                        fontFamily: "inherit",
-                        textDecoration: "underline",
-                      }}
-                    >
-                      {showEmailOverride ? "Usar mi email del panel" : "¿Pagar con otro email de MercadoPago?"}
-                    </button>
                   </div>
-                  {showEmailOverride && (
-                    <div
-                      style={{
-                        background: "rgba(255,255,255,0.06)",
-                        padding: "10px 12px",
-                        borderRadius: 10,
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                      }}
-                    >
-                      <label
-                        style={{
-                          fontSize: 11,
-                          color: "rgba(255,255,255,0.7)",
-                          letterSpacing: 0.3,
-                        }}
-                      >
-                        Email de la cuenta de MercadoPago con la que vas a pagar
-                      </label>
-                      <input
-                        type="email"
-                        value={payerEmail}
-                        onChange={(e) => setPayerEmail(e.target.value)}
-                        placeholder={data.ownerEmail || "ej: TESTUSER1234@testuser.com"}
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          border: "1px solid rgba(255,255,255,0.15)",
-                          background: "rgba(0,0,0,0.25)",
-                          color: "#fff",
-                          fontSize: 12.5,
-                          fontFamily: "inherit",
-                          outline: "none",
-                        }}
-                      />
-                      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.55)", lineHeight: 1.4 }}>
-                        Si lo dejás vacío usamos <b>{data.ownerEmail}</b>. El email tiene que coincidir con la cuenta de MP con la que iniciás sesión en el checkout, sino MP rechaza el pago.
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
               {(isActive || isPastDue) && (
