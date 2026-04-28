@@ -1,5 +1,5 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
 export type BarUpdate = {
@@ -61,5 +61,7 @@ export async function updateBarAction(input: BarUpdate): Promise<SaveResult> {
 
   revalidatePath("/mi-bar");
   revalidatePath("/", "layout");
+  // El profile cacheado incluye bars(name); invalidar todos para reflejar el cambio.
+  updateTag("profile");
   return { ok: true };
 }

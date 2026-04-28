@@ -1,7 +1,8 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { profileTagForUser } from "@/lib/cache";
 
 export type Role = "owner" | "manager" | "waiter" | "kitchen";
 
@@ -114,6 +115,7 @@ export async function updateStaffRoleAction(profileId: string, role: Role): Prom
     .eq("bar_id", ctx.barId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/equipo");
+  updateTag(profileTagForUser(profileId));
   return { ok: true };
 }
 
@@ -132,6 +134,7 @@ export async function toggleStaffActiveAction(profileId: string, active: boolean
     .eq("bar_id", ctx.barId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/equipo");
+  updateTag(profileTagForUser(profileId));
   return { ok: true };
 }
 
@@ -147,5 +150,6 @@ export async function removeStaffAction(profileId: string): Promise<Result> {
   const { error } = await admin.auth.admin.deleteUser(profileId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/equipo");
+  updateTag(profileTagForUser(profileId));
   return { ok: true };
 }

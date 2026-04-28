@@ -1,6 +1,7 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { dashboardTagForBar } from "@/lib/cache";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -75,6 +76,7 @@ export async function toggleItemReadyAction(itemId: string, ready: boolean): Pro
   revalidatePath("/cocina");
   revalidatePath("/mozo");
   revalidatePath("/dashboard");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -100,5 +102,6 @@ export async function markOrderReadyAction(orderId: string): Promise<Result> {
 
   revalidatePath("/cocina");
   revalidatePath("/mozo");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }

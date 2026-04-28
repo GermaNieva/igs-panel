@@ -33,23 +33,24 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() valida el JWT localmente (sin RTT a Supabase) cuando el proyecto
+  // usa firma asimétrica; si no, hace fallback transparente a getUser().
+  const { data } = await supabase.auth.getClaims();
+  const isAuthed = !!data?.claims;
 
   const { pathname } = request.nextUrl;
   const isPublic =
     pathname === "/" ||
     PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 
-  if (!user && !isPublic) {
+  if (!isAuthed && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = "/ingresar";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && (pathname === "/" || pathname === "/ingresar")) {
+  if (isAuthed && (pathname === "/" || pathname === "/ingresar")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

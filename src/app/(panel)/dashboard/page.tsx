@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/auth";
+import { getCachedDashboardStats } from "@/lib/cache";
 import IGSCard from "@/components/ui/IGSCard";
 import IGSBadge from "@/components/ui/IGSBadge";
 import IGSButton from "@/components/ui/IGSButton";
@@ -22,16 +23,10 @@ const toneColor = (t: "accent" | "ok" | "warn" | "neutral") =>
   t === "accent" ? IGS.accent : t === "ok" ? IGS.ok : t === "warn" ? IGS.warn : IGS.line2;
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/ingresar");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("bar_id, full_name")
-    .eq("id", user.id)
-    .maybeSingle();
-
+  const profile = await getCurrentProfile();
   if (!profile?.bar_id) {
     return <div style={{ padding: 32 }}>Tu cuenta no tiene un bar asociado.</div>;
   }
@@ -39,42 +34,29 @@ export default async function DashboardPage() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayISO = today.toISOString();
+  // Redondear sevenDaysAgo al inicio de la hora para que sea estable como cache key
+  // dentro de la misma hora; combinado con TTL corto da buena precisión sin
+  // invalidar el cache cada milisegundo.
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  sevenDaysAgo.setMinutes(0, 0, 0);
   const sevenDaysISO = sevenDaysAgo.toISOString();
 
-  const [paidToday, ordersToday, inProgress, tables, paid7, recent, topItemsRaw] = await Promise.all([
-    supabase.from("orders").select("total").eq("bar_id", profile.bar_id).eq("status", "paid").gte("paid_at", todayISO),
-    supabase.from("orders").select("id", { count: "exact", head: true }).eq("bar_id", profile.bar_id).gte("created_at", todayISO),
-    supabase.from("orders").select("id", { count: "exact", head: true }).eq("bar_id", profile.bar_id).in("status", ["confirmed", "in_kitchen", "ready"]),
-    supabase.from("tables").select("status").eq("bar_id", profile.bar_id),
-    supabase.from("orders").select("total").eq("bar_id", profile.bar_id).eq("status", "paid").gte("paid_at", sevenDaysISO),
-    supabase.from("orders")
-      .select("id, status, total, created_at, paid_at, called_at, sent_to_kitchen_at, ready_at, tables(number)")
-      .eq("bar_id", profile.bar_id)
-      .order("created_at", { ascending: false })
-      .limit(6),
-    supabase
-      .from("order_items")
-      .select("name_snapshot, qty, orders!inner(bar_id, created_at)")
-      .eq("orders.bar_id", profile.bar_id)
-      .gte("orders.created_at", sevenDaysISO),
-  ]);
+  const cached = await getCachedDashboardStats(profile.bar_id, todayISO, sevenDaysISO);
+  const { paidToday, ordersTodayCount, inProgressCount, tables, paid7, recent, topItemsRaw } = cached;
 
-  const revenueToday = (paidToday.data ?? []).reduce((s, o) => s + (o.total ?? 0), 0);
-  const ordersTodayCount = ordersToday.count ?? 0;
-  const inProgressCount = inProgress.count ?? 0;
-  const tablesAll = tables.data ?? [];
+  const revenueToday = paidToday.reduce((s, o) => s + (o.total ?? 0), 0);
+  const tablesAll = tables;
   const tablesTotal = tablesAll.length;
   const tablesOccupied = tablesAll.filter((t) => t.status !== "free").length;
   const occupancy = tablesTotal > 0 ? Math.round((tablesOccupied / tablesTotal) * 100) : 0;
 
-  const paid7Total = (paid7.data ?? []).reduce((s, o) => s + (o.total ?? 0), 0);
-  const avgTicket = paid7.data?.length ? Math.round(paid7Total / paid7.data.length) : 0;
+  const paid7Total = paid7.reduce((s, o) => s + (o.total ?? 0), 0);
+  const avgTicket = paid7.length ? Math.round(paid7Total / paid7.length) : 0;
 
   // Top items (agrupar en JS porque Postgres GROUP BY con joins desde el cliente es engorroso)
   const topMap = new Map<string, number>();
-  for (const it of topItemsRaw.data ?? []) {
+  for (const it of topItemsRaw) {
     topMap.set(it.name_snapshot, (topMap.get(it.name_snapshot) ?? 0) + (it.qty ?? 0));
   }
   const topItems = [...topMap.entries()]
@@ -116,7 +98,7 @@ export default async function DashboardPage() {
     },
   ];
 
-  const timeline = (recent.data ?? []).map((o) => {
+  const timeline = recent.map((o) => {
     const eventTime = pickMostRecent([
       o.paid_at,
       o.ready_at,

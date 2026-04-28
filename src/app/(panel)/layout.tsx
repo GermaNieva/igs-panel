@@ -1,21 +1,12 @@
 import { redirect } from "next/navigation";
 import IGSShell from "@/components/shell/IGSShell";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/auth";
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getCurrentUser();
   if (!user) redirect("/ingresar");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name, role, bar_id, bars(name)")
-    .eq("id", user.id)
-    .maybeSingle();
+  const profile = await getCurrentProfile();
 
   const ownerName =
     profile?.full_name ||

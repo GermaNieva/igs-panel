@@ -1,23 +1,19 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/auth";
 import EquipoClient, { type StaffMember } from "./EquipoClient";
 
 export default async function EquipoPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/ingresar");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("bar_id, role")
-    .eq("id", user.id)
-    .maybeSingle();
-
+  const profile = await getCurrentProfile();
   if (!profile?.bar_id) {
     return <div style={{ padding: 32 }}>Tu cuenta no tiene un bar asociado.</div>;
   }
 
+  const supabase = await createClient();
   const { data: members } = await supabase
     .from("profiles")
     .select("id, full_name, role, is_active, last_seen_at")

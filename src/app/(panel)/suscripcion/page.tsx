@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/auth";
 import SuscripcionClient, { type SubscriptionData, type Invoice } from "./SuscripcionClient";
 
 function daysUntil(iso: string | null): number {
@@ -16,20 +17,15 @@ export default async function SuscripcionPage({
   const sp = await searchParams;
   const justReturned = sp.mp === "ok";
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/ingresar");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("bar_id, role")
-    .eq("id", user.id)
-    .maybeSingle();
-
+  const profile = await getCurrentProfile();
   if (!profile?.bar_id) {
     return <div style={{ padding: 32 }}>Tu cuenta no tiene un bar asociado.</div>;
   }
 
+  const supabase = await createClient();
   const { data: bar } = await supabase
     .from("bars")
     .select("name, plan_status, trial_ends_at, mp_preapproval_id, payer_email, tax_info")

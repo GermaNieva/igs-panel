@@ -1,22 +1,18 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/auth";
 import MesasClient, { type Zone, type Mesa, type Llamada } from "./MesasClient";
 
 export default async function MesasPage() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
   if (!user) redirect("/ingresar");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("bar_id")
-    .eq("id", user.id)
-    .maybeSingle();
-
+  const profile = await getCurrentProfile();
   if (!profile?.bar_id) {
     return <div style={{ padding: 32 }}>Tu cuenta no tiene un bar asociado.</div>;
   }
 
+  const supabase = await createClient();
   const [{ data: bar }, { data: zones }, { data: tables }, { data: callingOrders }] = await Promise.all([
     supabase.from("bars").select("slug, name").eq("id", profile.bar_id).maybeSingle(),
     supabase.from("zones").select("id, name, sort").eq("bar_id", profile.bar_id).order("sort"),

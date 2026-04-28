@@ -1,6 +1,7 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { dashboardTagForBar } from "@/lib/cache";
 
 type Result<T = void> =
   | (T extends void ? { ok: true } : { ok: true; data: T })
@@ -64,6 +65,7 @@ export async function renameZoneAction(id: string, name: string): Promise<Result
     .eq("bar_id", ctx.barId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -78,6 +80,7 @@ export async function deleteZoneAction(id: string): Promise<Result> {
     .eq("bar_id", ctx.barId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -102,6 +105,7 @@ export async function createTableAction(zoneId: string | null, seats = 4): Promi
     .single();
   if (error) return { ok: false, error: error.message };
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true, data: { id: data.id, number: data.number } };
 }
 
@@ -126,6 +130,7 @@ export async function updateTableAction(input: UpdateTableInput): Promise<Result
     .eq("bar_id", ctx.barId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -139,6 +144,7 @@ export async function deleteTableAction(id: string): Promise<Result> {
     .eq("bar_id", ctx.barId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -156,5 +162,6 @@ export async function seedFirstZoneAction(): Promise<Result> {
     .insert({ bar_id: ctx.barId, name: "Salón principal", sort: 0 });
   if (error) return { ok: false, error: error.message };
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }

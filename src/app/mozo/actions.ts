@@ -1,6 +1,7 @@
 "use server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { dashboardTagForBar } from "@/lib/cache";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -69,6 +70,7 @@ export async function confirmOrderAction(orderId: string): Promise<Result> {
   revalidatePath("/cocina");
   revalidatePath("/dashboard");
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -103,6 +105,7 @@ export async function dismissCallAction(orderId: string): Promise<Result> {
   revalidatePath("/mozo");
   revalidatePath("/dashboard");
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -121,6 +124,7 @@ export async function markServedAction(orderId: string): Promise<Result> {
   revalidatePath("/mozo");
   revalidatePath("/cocina");
   revalidatePath("/dashboard");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
@@ -157,6 +161,7 @@ export async function markPaidAction(orderId: string): Promise<Result> {
   revalidatePath("/mozo");
   revalidatePath("/dashboard");
   revalidatePath("/mesas");
+  updateTag(dashboardTagForBar(ctx.barId));
   return { ok: true };
 }
 
