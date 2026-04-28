@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/auth";
 import SuscripcionClient, { type SubscriptionData, type Invoice } from "./SuscripcionClient";
+import { syncPreapprovalToBar } from "./sync";
 
 function daysUntil(iso: string | null): number {
   if (!iso) return 0;
@@ -12,10 +13,11 @@ function daysUntil(iso: string | null): number {
 export default async function SuscripcionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mp?: string }>;
+  searchParams: Promise<{ mp?: string; preapproval_id?: string }>;
 }) {
   const sp = await searchParams;
   const justReturned = sp.mp === "ok";
+  const preapprovalIdFromUrl = typeof sp.preapproval_id === "string" ? sp.preapproval_id : null;
 
   const user = await getCurrentUser();
   if (!user) redirect("/ingresar");
@@ -25,10 +27,17 @@ export default async function SuscripcionPage({
     return <div style={{ padding: 32 }}>Tu cuenta no tiene un bar asociado.</div>;
   }
 
+  // Sync inmediato al volver de MP — evita esperar al webhook para activar.
+  let returnStatus: string | null = null;
+  if (justReturned && preapprovalIdFromUrl) {
+    const r = await syncPreapprovalToBar(preapprovalIdFromUrl, profile.bar_id);
+    if (r.ok) returnStatus = r.status;
+  }
+
   const supabase = await createClient();
   const { data: bar } = await supabase
     .from("bars")
-    .select("name, plan_status, trial_ends_at, mp_preapproval_id, payer_email, tax_info")
+    .select("name, plan_status, trial_ends_at, mp_preapproval_id, tax_info")
     .eq("id", profile.bar_id)
     .maybeSingle();
 
@@ -49,8 +58,6 @@ export default async function SuscripcionPage({
     trialDaysLeft,
     hasPreapproval: !!bar?.mp_preapproval_id,
     canManage: ["owner", "super_admin"].includes(profile.role),
-    ownerEmail: user.email ?? "",
-    savedPayerEmail: bar?.payer_email ?? null,
   };
 
   const invoiceList: Invoice[] = (invoices ?? []).map((i) => ({
@@ -68,6 +75,7 @@ export default async function SuscripcionPage({
       data={data}
       invoices={invoiceList}
       justReturnedFromMP={justReturned}
+      returnStatus={returnStatus}
     />
   );
 }

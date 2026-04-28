@@ -3,12 +3,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
-  createPreapproval,
   cancelPreapproval,
   pausePreapproval,
   resumePreapproval,
-  PLAN_PRICE,
-  PLAN_NAME,
+  getCheckoutUrlForPlan,
 } from "@/lib/mercadopago";
 
 type Result<T = void> =
@@ -20,7 +18,6 @@ type Ctx =
   | {
       ok: true;
       barId: string;
-      barOwnerEmail: string;
       supabase: Awaited<ReturnType<typeof createClient>>;
     };
 
@@ -37,79 +34,34 @@ async function ctxFor(): Promise<Ctx> {
   if (!["owner", "super_admin"].includes(profile.role)) {
     return { ok: false, error: "Solo el dueño del bar puede gestionar la suscripción." };
   }
-  return {
-    ok: true,
-    barId: profile.bar_id,
-    barOwnerEmail: user.email ?? "",
-    supabase,
-  };
+  return { ok: true, barId: profile.bar_id, supabase };
 }
 
-export async function startSubscriptionAction(
-  input?: { payerEmailOverride?: string } | FormData
-): Promise<Result<{ init_point: string }>> {
+export async function startSubscriptionAction(): Promise<Result<{ init_point: string }>> {
   const ctx = await ctxFor();
   if (!ctx.ok) return ctx;
 
-  if (!ctx.barOwnerEmail) {
-    return { ok: false, error: "Tu cuenta no tiene email registrado." };
+  const planId = process.env.MP_PREAPPROVAL_PLAN_ID;
+  if (!planId) {
+    return {
+      ok: false,
+      error: "El plan de MercadoPago aún no está configurado. Avisanos a soporte.",
+    };
   }
 
-  // Permitir que el dueño use un email de MP distinto al de su login del panel.
-  // Causa #1 más común de "Algo salió mal" en el checkout: el email enviado en el
-  // body no coincide con el de la cuenta de MP con la que se loguea el comprador.
-  const rawOverride =
-    input instanceof FormData
-      ? (input.get("payerEmail") as string | null) ?? ""
-      : input?.payerEmailOverride ?? "";
-  const trimmedOverride = rawOverride.trim().toLowerCase();
-  const payerEmail = trimmedOverride || ctx.barOwnerEmail;
-
-  if (trimmedOverride && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedOverride)) {
-    return { ok: false, error: "El email de MercadoPago no es válido." };
-  }
-
-  // Si ya hay una preapproval activa, no creamos otra
   const { data: bar } = await ctx.supabase
     .from("bars")
-    .select("mp_preapproval_id, plan_status, name")
+    .select("plan_status")
     .eq("id", ctx.barId)
     .maybeSingle();
   if (!bar) return { ok: false, error: "No se encontró el bar." };
 
-  if (bar.mp_preapproval_id && bar.plan_status === "active") {
+  if (bar.plan_status === "active") {
     return { ok: false, error: "Tu plan ya está activo." };
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-  try {
-    const pre = await createPreapproval({
-      payer_email: payerEmail,
-      reason: `${PLAN_NAME} — ${bar.name}`,
-      amount: PLAN_PRICE,
-      external_reference: ctx.barId,
-      back_url: `${baseUrl}/suscripcion?mp=ok`,
-      notification_url: `${baseUrl}/api/mp-webhook`,
-    });
-
-    // Guardar el ID y el payer_email usado para que la próxima vez aparezca
-    // pre-cargado en el form (UX: el dueño no tiene que reescribirlo).
-    const admin = createAdminClient();
-    await admin
-      .from("bars")
-      .update({
-        mp_preapproval_id: pre.id,
-        payer_email: payerEmail,
-      })
-      .eq("id", ctx.barId);
-
-    revalidatePath("/suscripcion");
-    return { ok: true, data: { init_point: pre.init_point } };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: `No pudimos iniciar la suscripción: ${msg}` };
-  }
+  const initPoint = getCheckoutUrlForPlan({ planId, barId: ctx.barId });
+  return { ok: true, data: { init_point: initPoint } };
 }
 
 export async function cancelSubscriptionAction(): Promise<Result> {
@@ -133,8 +85,7 @@ export async function cancelSubscriptionAction(): Promise<Result> {
     revalidatePath("/suscripcion");
     return { ok: true };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg };
+    return { ok: false, error: humanizeMpError(e) };
   }
 }
 
@@ -154,8 +105,7 @@ export async function pauseSubscriptionAction(): Promise<Result> {
     revalidatePath("/suscripcion");
     return { ok: true };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg };
+    return { ok: false, error: humanizeMpError(e) };
   }
 }
 
@@ -175,7 +125,25 @@ export async function resumeSubscriptionAction(): Promise<Result> {
     revalidatePath("/suscripcion");
     return { ok: true };
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: msg };
+    return { ok: false, error: humanizeMpError(e) };
   }
+}
+
+// Traduce errores comunes de MP a mensajes accionables en español.
+function humanizeMpError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const lower = raw.toLowerCase();
+  if (lower.includes("payer_email") || lower.includes("collector_id")) {
+    return "El email del pagador no coincide con la cuenta de MercadoPago del checkout.";
+  }
+  if (lower.includes("rejected") || lower.includes("cc_rejected")) {
+    return "MercadoPago rechazó la tarjeta. Probá con otra o revisá saldo y datos.";
+  }
+  if (lower.includes("not found") || lower.includes("404")) {
+    return "La suscripción no existe en MercadoPago.";
+  }
+  if (lower.includes("unauthorized") || lower.includes("401") || lower.includes("403")) {
+    return "El access token de MercadoPago no es válido.";
+  }
+  return raw;
 }

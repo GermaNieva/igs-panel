@@ -20,8 +20,6 @@ export type SubscriptionData = {
   trialDaysLeft: number;
   hasPreapproval: boolean;
   canManage: boolean;
-  ownerEmail: string;
-  savedPayerEmail: string | null;
 };
 
 export type Invoice = {
@@ -55,41 +53,56 @@ export default function SuscripcionClient({
   data,
   invoices,
   justReturnedFromMP,
+  returnStatus,
 }: {
   data: SubscriptionData;
   invoices: Invoice[];
   justReturnedFromMP: boolean;
+  returnStatus: string | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(
-    justReturnedFromMP
-      ? "Volviste de MercadoPago. Si autorizaste el pago, en unos minutos vamos a activar tu plan automáticamente."
-      : null
-  );
-  // Pre-cargamos con el último email usado, o si no con el email de login.
-  // El usuario puede editarlo libremente — la única regla es que coincida con
-  // la cuenta MP que va a usar para pagar.
-  const [payerEmail, setPayerEmail] = useState<string>(
-    data.savedPayerEmail || data.ownerEmail || ""
-  );
+  const [info, setInfo] = useState<string | null>(initialInfoForReturn(justReturnedFromMP, returnStatus));
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   function handleStart() {
     setError(null);
     setInfo(null);
-    const override = payerEmail.trim();
-    if (!override) {
-      setError("Necesitamos el email de la cuenta MercadoPago que va a pagar.");
-      return;
-    }
+    setShareUrl(null);
     startTransition(async () => {
-      const res = await startSubscriptionAction({ payerEmailOverride: override });
+      const res = await startSubscriptionAction();
       if (res.ok) {
         window.location.href = res.data.init_point;
       } else {
         setError(res.error);
       }
     });
+  }
+
+  function handleGenerateShareLink() {
+    setError(null);
+    setInfo(null);
+    setCopied(false);
+    startTransition(async () => {
+      const res = await startSubscriptionAction();
+      if (res.ok) {
+        setShareUrl(res.data.init_point);
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  async function handleCopyShare() {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignorar
+    }
   }
 
   function handleCancel() {
@@ -278,55 +291,11 @@ export default function SuscripcionClient({
             >
               {(isTrialing || data.planStatus === "cancelled") && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12, width: "100%" }}>
-                  <div
-                    style={{
-                      background: "rgba(255,255,255,0.06)",
-                      padding: "12px 14px",
-                      borderRadius: 10,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                    }}
-                  >
-                    <label
-                      htmlFor="payer-email"
-                      style={{
-                        fontSize: 11.5,
-                        color: "rgba(255,255,255,0.85)",
-                        letterSpacing: 0.3,
-                        fontWeight: 600,
-                      }}
-                    >
-                      Email de la cuenta de MercadoPago que va a pagar
-                    </label>
-                    <input
-                      id="payer-email"
-                      type="email"
-                      value={payerEmail}
-                      onChange={(e) => setPayerEmail(e.target.value)}
-                      placeholder="ej: cuenta-mp@gmail.com"
-                      autoComplete="email"
-                      style={{
-                        padding: "10px 12px",
-                        borderRadius: 8,
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        background: "rgba(0,0,0,0.28)",
-                        color: "#fff",
-                        fontSize: 13,
-                        fontFamily: "inherit",
-                        outline: "none",
-                      }}
-                    />
-                    <div style={{ fontSize: 11, color: "rgba(255,255,255,0.65)", lineHeight: 1.5 }}>
-                      Puede ser tu propio email o el de otra persona (ej: padre, socio).
-                      Reglas de MercadoPago para que el pago no sea rechazado:
-                      <ul style={{ margin: "6px 0 0 16px", padding: 0 }}>
-                        <li>Este email <b>tiene que coincidir</b> con el de la cuenta de MP con la que se inicia sesión en el checkout.</li>
-                        <li>La <b>tarjeta debe estar a nombre</b> del titular de esa cuenta de MP (sino antifraude rechaza).</li>
-                      </ul>
-                    </div>
+                  <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.7)", lineHeight: 1.5 }}>
+                    Te llevamos al checkout de MercadoPago. Pagás con tu cuenta o, si querés,
+                    generás un link y se lo pasás a otra persona para que pague por vos.
                   </div>
-                  <div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <button
                       onClick={handleStart}
                       disabled={pending}
@@ -342,9 +311,96 @@ export default function SuscripcionClient({
                         fontFamily: "inherit",
                       }}
                     >
-                      {pending ? "Conectando con MercadoPago..." : "🔓 Activar plan"}
+                      {pending ? "Conectando..." : "🔓 Activar plan ahora"}
+                    </button>
+                    <button
+                      onClick={handleGenerateShareLink}
+                      disabled={pending}
+                      style={{
+                        padding: "10px 16px",
+                        background: "rgba(255,255,255,0.1)",
+                        color: "#fff",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        borderRadius: 22,
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                        cursor: pending ? "wait" : "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      Generar link para que pague otra persona
                     </button>
                   </div>
+                  {shareUrl && (
+                    <div
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ fontSize: 11.5, color: "rgba(255,255,255,0.85)", fontWeight: 600 }}>
+                        Link para compartir
+                      </div>
+                      <div
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 6,
+                          background: "rgba(0,0,0,0.3)",
+                          fontFamily: "ui-monospace, monospace",
+                          fontSize: 11,
+                          color: "#fff",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {shareUrl}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={handleCopyShare}
+                          style={{
+                            padding: "6px 12px",
+                            background: "#fff",
+                            color: IGS.ink,
+                            border: "none",
+                            borderRadius: 16,
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          {copied ? "✓ Copiado" : "Copiar"}
+                        </button>
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(`Te paso el link para que pagues la suscripción de ${data.barName} en MercadoPago: ${shareUrl}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            padding: "6px 12px",
+                            background: "rgba(255,255,255,0.1)",
+                            color: "#fff",
+                            border: "1px solid rgba(255,255,255,0.2)",
+                            borderRadius: 16,
+                            fontSize: 11.5,
+                            fontWeight: 500,
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            textDecoration: "none",
+                          }}
+                        >
+                          Enviar por WhatsApp
+                        </a>
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "rgba(255,255,255,0.55)", lineHeight: 1.5 }}>
+                        Quien abra el link se loguea con su cuenta de MercadoPago y paga con su
+                        tarjeta — no hace falta que coincida con tu email.
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {(isActive || isPastDue) && (
@@ -442,7 +498,7 @@ export default function SuscripcionClient({
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 600 }}>MercadoPago</div>
-                <div style={{ fontSize: 11, color: IGS.muted }}>{data.ownerEmail}</div>
+                <div style={{ fontSize: 11, color: IGS.muted }}>Cobro mensual automático</div>
               </div>
               <IGSBadge tone={isActive ? "ok" : "neutral"}>
                 {isActive ? "Activo" : status.l}
@@ -566,4 +622,18 @@ export default function SuscripcionClient({
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function initialInfoForReturn(justReturned: boolean, status: string | null): string | null {
+  if (!justReturned) return null;
+  if (status === "authorized") {
+    return "✓ Suscripción autorizada. Tu plan ya está activo.";
+  }
+  if (status === "pending") {
+    return "Volviste de MercadoPago, pero la suscripción todavía está pendiente. Si pagaste, en unos minutos la activamos automáticamente.";
+  }
+  if (status === "cancelled") {
+    return "La suscripción figura como cancelada en MercadoPago.";
+  }
+  return "Volviste de MercadoPago. Si autorizaste el pago, lo verificamos automáticamente.";
 }

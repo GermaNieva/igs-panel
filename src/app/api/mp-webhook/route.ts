@@ -50,6 +50,9 @@ async function handlePreapprovalEvent(preapprovalId: string) {
   if (!barId) return;
 
   const admin = createAdminClient();
+  // `pending` no degrada el plan_status — solo cambiamos cuando MP confirma una
+  // transición real (autorizado, pausado o cancelado). Así un evento de un
+  // intento abandonado no rompe el trialing/active del bar.
   const newStatus =
     pre.status === "authorized"
       ? "active"
@@ -57,16 +60,15 @@ async function handlePreapprovalEvent(preapprovalId: string) {
       ? "paused"
       : pre.status === "cancelled"
       ? "cancelled"
-      : "trialing";
+      : null;
 
-  await admin
-    .from("bars")
-    .update({
-      plan_status: newStatus,
-      mp_preapproval_id: pre.id,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", barId);
+  const updates: Record<string, unknown> = {
+    mp_preapproval_id: pre.id,
+    updated_at: new Date().toISOString(),
+  };
+  if (newStatus) updates.plan_status = newStatus;
+
+  await admin.from("bars").update(updates).eq("id", barId);
 }
 
 async function handleAuthorizedPaymentEvent(authorizedPaymentId: string) {

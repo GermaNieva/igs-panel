@@ -55,18 +55,12 @@ async function mpRequest<T>(path: string, init: MpRequestInit = {}): Promise<T> 
   return data as T;
 }
 
-// ============== PreApproval (suscripción individual con plan inline) ==============
-// Cada bar crea su propia preapproval con monto fijo $30.000/mes.
-// Esto es más flexible que un PreApproval Plan compartido.
-
-type CreatePreapprovalInput = {
-  payer_email: string;
-  reason: string;
-  amount: number;
-  external_reference: string; // bar_id
-  back_url?: string; // opcional — MP exige HTTPS público; si es localhost lo omitimos
-  notification_url?: string; // opcional — idem; MP exige HTTPS público para que dispare el webhook
-};
+// ============== PreApproval Plan (compartido) ==============
+// Modelo actual: un Plan único en MP, que cualquier bar usa. Cada bar agrega
+// su `external_reference` por query string al checkout. Cualquier cuenta de MP
+// puede pagar — no se manda payer_email, no hay validación de email.
+// El plan se crea una sola vez con `node scripts/create-mp-plan.mjs` y su id
+// queda en MP_PREAPPROVAL_PLAN_ID.
 
 export type Preapproval = {
   id: string;
@@ -89,45 +83,48 @@ export type Preapproval = {
   };
 };
 
-export async function createPreapproval(input: CreatePreapprovalInput): Promise<Preapproval> {
-  // MP exige back_url y notification_url HTTPS públicos — si son localhost / vacío, los omitimos.
-  const validBackUrl = isPublicHttpsUrl(input.back_url) ? input.back_url : undefined;
-  const validNotificationUrl = isPublicHttpsUrl(input.notification_url)
-    ? input.notification_url
-    : undefined;
-
-  const body: Record<string, unknown> = {
-    reason: input.reason,
-    external_reference: input.external_reference,
-    payer_email: input.payer_email,
-    auto_recurring: {
-      frequency: 1,
-      frequency_type: "months",
-      transaction_amount: input.amount,
-      currency_id: "ARS",
-    },
-    status: "pending",
+export type PreapprovalPlan = {
+  id: string;
+  status: "active" | "inactive" | "cancelled";
+  init_point: string;
+  reason: string;
+  back_url?: string;
+  auto_recurring: {
+    frequency: number;
+    frequency_type: "months" | "days";
+    transaction_amount: number;
+    currency_id: string;
   };
-  if (validBackUrl) body.back_url = validBackUrl;
-  if (validNotificationUrl) body.notification_url = validNotificationUrl;
+};
 
-  return mpRequest<Preapproval>("/preapproval", {
+export async function createPreapprovalPlan(input: {
+  reason: string;
+  amount: number;
+  backUrl: string;
+}): Promise<PreapprovalPlan> {
+  return mpRequest<PreapprovalPlan>("/preapproval_plan", {
     method: "POST",
-    body,
+    body: {
+      reason: input.reason,
+      back_url: input.backUrl,
+      auto_recurring: {
+        frequency: 1,
+        frequency_type: "months",
+        transaction_amount: input.amount,
+        currency_id: "ARS",
+      },
+    },
   });
 }
 
-function isPublicHttpsUrl(url: string | undefined): url is string {
-  if (!url) return false;
-  try {
-    const u = new URL(url);
-    if (u.protocol !== "https:") return false;
-    // localhost / IP privadas no son válidas para MP
-    if (/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(u.hostname)) return false;
-    return true;
-  } catch {
-    return false;
-  }
+// Arma el URL de checkout que el usuario abre para suscribirse al plan.
+// `external_reference` queda asociado al preapproval que MP cree cuando autoriza.
+export function getCheckoutUrlForPlan(input: { planId: string; barId: string }): string {
+  const params = new URLSearchParams({
+    preapproval_plan_id: input.planId,
+    external_reference: input.barId,
+  });
+  return `https://www.mercadopago.com.ar/subscriptions/checkout?${params.toString()}`;
 }
 
 export async function getPreapproval(id: string): Promise<Preapproval> {
