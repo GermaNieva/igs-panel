@@ -10,7 +10,7 @@ export function getCachedProfileById(userId: string) {
       const admin = createAdminClient();
       const { data } = await admin
         .from("profiles")
-        .select("id, full_name, role, bar_id, bars(name)")
+        .select("id, full_name, role, bar_id, bars(name, onboarding_completed)")
         .eq("id", id)
         .maybeSingle();
       return data;

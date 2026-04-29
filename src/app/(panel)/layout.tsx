@@ -8,6 +8,18 @@ export default async function PanelLayout({ children }: { children: React.ReactN
 
   const profile = await getCurrentProfile();
 
+  // Si el dueño todavía no completó el wizard, lo redirigimos.
+  // Solo redirigimos a owners (no a staff invitado, que no necesita configurar el bar).
+  // @ts-expect-error — supabase join typing
+  const onboardingCompleted: boolean = profile?.bars?.onboarding_completed ?? true;
+  if (
+    profile?.bar_id &&
+    !onboardingCompleted &&
+    (profile.role === "owner" || profile.role === "super_admin")
+  ) {
+    redirect("/onboarding");
+  }
+
   const ownerName =
     profile?.full_name ||
     user.user_metadata?.full_name ||
