@@ -1,12 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPreapproval, getAuthorizedPayment } from "@/lib/mercadopago";
+import { verifyMpWebhookSignature } from "@/lib/mp-webhook-verify";
 
 // Webhook de MercadoPago. Configurar la URL pública en:
 // MP Dashboard → Tu app → Webhooks → URL: https://TU-DOMINIO/api/mp-webhook
 // Eventos a suscribir: "subscription_preapproval" y "subscription_authorized_payment".
+//
+// La firma HMAC-SHA256 de cada webhook se valida contra MP_WEBHOOK_SECRET (se
+// genera en MP Dashboard → Webhooks → editar URL → "Generar clave secreta").
+// Sin secret configurado, rechazamos todos los webhooks en producción para
+// evitar que un atacante active suscripciones falsas.
 
 export async function POST(req: NextRequest) {
+  const url = new URL(req.url);
+  // Importante: el `data.id` para el manifest de la firma se toma del query
+  // string, no del body. (Spec de MP.)
+  const dataIdFromQuery = url.searchParams.get("data.id");
+  const typeFromQuery = url.searchParams.get("type");
+
+  const secret = process.env.MP_WEBHOOK_SECRET;
+  const isProd = process.env.NODE_ENV === "production";
+
+  // Verificar firma. En dev sin secret seteado dejamos pasar para poder
+  // probar con la herramienta del dashboard de MP, pero logueamos.
+  if (secret) {
+    const verify = verifyMpWebhookSignature({
+      signatureHeader: req.headers.get("x-signature"),
+      requestIdHeader: req.headers.get("x-request-id"),
+      dataId: dataIdFromQuery,
+      secret,
+    });
+    if (!verify.ok) {
+      console.warn("[mp-webhook] signature rejected:", verify.reason);
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+  } else if (isProd) {
+    console.error("[mp-webhook] MP_WEBHOOK_SECRET not configured in production — rejecting");
+    return NextResponse.json({ ok: false }, { status: 401 });
+  } else {
+    console.warn("[mp-webhook] DEV: skipping signature verification (no MP_WEBHOOK_SECRET)");
+  }
+
   let body: { type?: string; action?: string; data?: { id?: string } } = {};
   try {
     body = await req.json();
@@ -14,10 +49,9 @@ export async function POST(req: NextRequest) {
     body = {};
   }
 
-  const type = body.type ?? new URL(req.url).searchParams.get("type") ?? "";
-  const id = body.data?.id ?? new URL(req.url).searchParams.get("data.id") ?? "";
+  const type = body.type ?? typeFromQuery ?? "";
+  const id = body.data?.id ?? dataIdFromQuery ?? "";
 
-  // Log básico para debug
   console.log("[mp-webhook]", { type, action: body.action, id });
 
   if (!id) {
@@ -33,15 +67,10 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     console.error("[mp-webhook] error:", e);
     // Devolvemos 200 igual para que MP no reintente eternamente.
-    return NextResponse.json({ ok: false, error: String(e) });
+    return NextResponse.json({ ok: false });
   }
 
   return NextResponse.json({ ok: true });
-}
-
-// También aceptar GET por compatibilidad con el "Probar webhook" del dashboard de MP
-export async function GET(req: NextRequest) {
-  return POST(req);
 }
 
 async function handlePreapprovalEvent(preapprovalId: string) {

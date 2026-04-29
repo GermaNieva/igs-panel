@@ -1,5 +1,7 @@
 "use server";
+import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit, clientIpFromHeaders } from "@/lib/rate-limit";
 
 type LineItem = {
   menu_item_id: string;
@@ -11,12 +13,35 @@ type Result =
   | { ok: true; order_id: string }
   | { ok: false; error: string };
 
+// Límites de rate (por ventana de 5 minutos):
+//  - Por mesa: máx 5 llamadas en 5 min — protege contra clientes accidentalmente
+//    spameando el botón.
+//  - Por IP: máx 30 llamadas en 5 min — protege contra bots / DoS de cocina.
+const PER_TABLE_MAX = 5;
+const PER_IP_MAX = 30;
+const WINDOW_SECONDS = 300;
+
 export async function callWaiterAction(input: {
   bar_id: string;
   table_id: string;
   items: LineItem[];
 }): Promise<Result> {
   if (!input.bar_id || !input.table_id) return { ok: false, error: "Faltan datos." };
+
+  // Rate limit anónimo: este endpoint lo invoca cualquiera con el QR de mesa.
+  const h = await headers();
+  const ip = clientIpFromHeaders(h);
+
+  const [tableOk, ipOk] = await Promise.all([
+    checkRateLimit(`call-waiter:table:${input.table_id}`, PER_TABLE_MAX, WINDOW_SECONDS),
+    checkRateLimit(`call-waiter:ip:${ip}`, PER_IP_MAX, WINDOW_SECONDS),
+  ]);
+  if (!tableOk || !ipOk) {
+    return {
+      ok: false,
+      error: "Demasiadas llamadas seguidas. Esperá un momento antes de pedir de nuevo.",
+    };
+  }
 
   // Usamos admin client porque el cliente público no está logueado y los inserts pasan
   // por las políticas anon, pero queremos que el orden/items queden con bar_id correcto.
