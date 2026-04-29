@@ -5,7 +5,7 @@ import IGSInput from "@/components/ui/IGSInput";
 import IGSButton from "@/components/ui/IGSButton";
 import IGSBadge from "@/components/ui/IGSBadge";
 import { IGS, formatARS } from "@/lib/tokens";
-import { updateBarAction, type BarUpdate } from "./actions";
+import { updateBarAction, deleteAccountAction, type BarUpdate } from "./actions";
 
 const HORARIOS = [
   { d: "Lunes", hs: "Cerrado", off: true },
@@ -422,6 +422,152 @@ export default function MiBarForm({ initial }: Props) {
           </div>
         </div>
       </div>
+
+      <DangerZone barName={form.name} />
+    </div>
+  );
+}
+
+// ====================================================================
+// Zona de peligro: borrar cuenta. Requiere escribir el nombre del bar
+// para confirmar.
+// ====================================================================
+function DangerZone({ barName }: { barName: string }) {
+  const [open, setOpen] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function handleDelete() {
+    setError(null);
+    if (confirmText.trim() !== barName.trim()) {
+      setError(`Tenés que escribir el nombre exacto: "${barName}".`);
+      return;
+    }
+    startTransition(async () => {
+      const res = await deleteAccountAction({ confirmName: confirmText });
+      if (res.ok) {
+        // Cuenta borrada — redirigimos. La sesión queda inválida porque el
+        // user fue eliminado de auth, así que cualquier ruta protegida nos
+        // mandará a /ingresar.
+        window.location.href = "/ingresar?account_deleted=1";
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <IGSCard
+        padding={20}
+        style={{ borderColor: "rgba(194,78,47,0.3)" }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 600, color: "#a3391e", marginBottom: 4 }}>
+          Zona de peligro
+        </div>
+        <div style={{ fontSize: 12.5, color: IGS.muted, marginBottom: 14, lineHeight: 1.5 }}>
+          Eliminá tu bar y todos sus datos de forma permanente. Esto incluye carta, mesas,
+          pedidos, equipo, suscripción de MercadoPago e historial. <b>No se puede deshacer.</b>
+        </div>
+
+        {!open ? (
+          <button
+            onClick={() => setOpen(true)}
+            style={{
+              padding: "8px 14px",
+              background: "transparent",
+              color: "#a3391e",
+              border: "1px solid rgba(194,78,47,0.4)",
+              borderRadius: 8,
+              fontSize: 12.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+          >
+            Borrar mi cuenta
+          </button>
+        ) : (
+          <div
+            style={{
+              padding: 14,
+              background: "rgba(194,78,47,0.06)",
+              borderRadius: 10,
+              border: "1px solid rgba(194,78,47,0.2)",
+            }}
+          >
+            <div style={{ fontSize: 12.5, marginBottom: 10, color: IGS.ink }}>
+              Para confirmar, escribí el nombre exacto del bar:{" "}
+              <b>&ldquo;{barName}&rdquo;</b>
+            </div>
+            <input
+              value={confirmText}
+              onChange={(e) => {
+                setConfirmText(e.target.value);
+                setError(null);
+              }}
+              placeholder={barName}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: `1px solid ${IGS.line2}`,
+                background: "#fff",
+                fontSize: 13,
+                fontFamily: "inherit",
+                outline: "none",
+                color: IGS.ink,
+                marginBottom: 10,
+              }}
+            />
+            {error && (
+              <div style={{ fontSize: 12, color: "#a3391e", marginBottom: 10 }}>{error}</div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => {
+                  setOpen(false);
+                  setConfirmText("");
+                  setError(null);
+                }}
+                disabled={pending}
+                style={{
+                  padding: "8px 14px",
+                  background: "transparent",
+                  color: IGS.ink2,
+                  border: `1px solid ${IGS.line2}`,
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  cursor: pending ? "wait" : "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={pending || !confirmText.trim()}
+                style={{
+                  padding: "8px 14px",
+                  background: "#c24e2f",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: pending ? "wait" : "pointer",
+                  opacity: pending || !confirmText.trim() ? 0.6 : 1,
+                  fontFamily: "inherit",
+                }}
+              >
+                {pending ? "Borrando..." : "Borrar definitivamente"}
+              </button>
+            </div>
+          </div>
+        )}
+      </IGSCard>
     </div>
   );
 }

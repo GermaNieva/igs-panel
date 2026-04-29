@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import IGSLogo from "@/components/ui/IGSLogo";
 import LogoutButton from "@/components/shell/LogoutButton";
+import LegalFooter from "@/components/LegalFooter";
 import { IGS } from "@/lib/tokens";
 
 type NavItem = { id: string; href: string; label: string; icon: string };
@@ -231,7 +232,10 @@ export default function IGSShell({ bar, children, hideSidebar = false }: Props) 
           </div>
         </header>
 
-        <main style={{ flex: 1, minWidth: 0 }}>{children}</main>
+        <main style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1 }}>{children}</div>
+          <LegalFooter />
+        </main>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useMemo, useEffect, useTransition } from "react";
 import { IGS, formatARS } from "@/lib/tokens";
+import LegalFooter from "@/components/LegalFooter";
 import { callWaiterAction } from "./actions";
 
 export type PublicBar = {
@@ -545,6 +546,7 @@ export default function CartaCliente({ bar, categories, items, mesa }: Props) {
           error={callError}
         />
       )}
+      <LegalFooter variant="minimal" />
     </div>
   );
 }
