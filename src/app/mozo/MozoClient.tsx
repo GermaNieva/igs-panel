@@ -52,6 +52,7 @@ export default function MozoClient({ barId, waiterName, initialOrders }: Props) 
   const [filter, setFilter] = useState<"calls" | "kitchen" | "all">("calls");
   const [openId, setOpenId] = useState<string | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
+  const [errorToast, setErrorToast] = useState<string | null>(null);
   // useState lazy init en lugar de useRef.current — evita acceder a refs durante render.
   const [supabase] = useState(() => createClient());
 
@@ -100,6 +101,27 @@ export default function MozoClient({ barId, waiterName, initialOrders }: Props) 
       supabase.removeChannel(channel);
     };
   }, [supabase, barId, refresh]);
+
+  // Optimistic update: aplica patch inmediato + cierra modal + dispara la
+  // action en background. Si falla, refrescamos desde DB (revierte) y mostramos
+  // un toast con el error.
+  const runOptimistic = (
+    orderId: string,
+    patch: Partial<ActiveOrder>,
+    fn: () => Promise<{ ok: true } | { ok: false; error: string }>
+  ) => {
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)));
+    setOpenId(null);
+    setErrorToast(null);
+    void (async () => {
+      const res = await fn();
+      if (!res.ok) {
+        setErrorToast(res.error);
+        refresh(); // revertir desde la DB
+        setTimeout(() => setErrorToast(null), 4500);
+      }
+    })();
+  };
 
   const filtered = orders.filter((o) => {
     if (filter === "calls") return o.status === "calling_waiter";
@@ -261,7 +283,36 @@ export default function MozoClient({ barId, waiterName, initialOrders }: Props) 
         🔥 Vista cocina
       </Link>
 
-      {open && <OrderDetail order={open} now={now} onClose={() => setOpenId(null)} />}
+      {open && (
+        <OrderDetail
+          order={open}
+          now={now}
+          onClose={() => setOpenId(null)}
+          runOptimistic={runOptimistic}
+        />
+      )}
+
+      {errorToast && (
+        <div
+          role="alert"
+          style={{
+            position: "fixed",
+            left: 12,
+            right: 12,
+            bottom: 70,
+            padding: "12px 14px",
+            background: "#a3391e",
+            color: "#fff",
+            borderRadius: 10,
+            fontSize: 12.5,
+            fontWeight: 500,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            zIndex: 60,
+          }}
+        >
+          ⚠ {errorToast}
+        </div>
+      )}
     </div>
   );
 }
@@ -405,13 +456,18 @@ function OrderDetail({
   order,
   now,
   onClose,
+  runOptimistic,
 }: {
   order: ActiveOrder;
   now: number;
   onClose: () => void;
+  runOptimistic: (
+    orderId: string,
+    patch: Partial<ActiveOrder>,
+    fn: () => Promise<{ ok: true } | { ok: false; error: string }>
+  ) => void;
 }) {
   const [items, setItems] = useState<OrderItem[] | null>(null);
-  const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const status = STATUS_LABEL[order.status];
 
@@ -432,15 +488,6 @@ function OrderDetail({
     order.status === "calling_waiter"
       ? order.called_at
       : order.sent_to_kitchen_at ?? order.called_at;
-
-  function action(fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
-    setError(null);
-    startTransition(async () => {
-      const res = await fn();
-      if (!res.ok) setError(res.error);
-      else onClose();
-    });
-  }
 
   return (
     <div
@@ -619,7 +666,7 @@ function OrderDetail({
             </div>
           )}
 
-          <ActionButtons order={order} pending={pending} onAction={action} />
+          <ActionButtons order={order} runOptimistic={runOptimistic} />
         </div>
       </div>
     </div>
@@ -628,12 +675,14 @@ function OrderDetail({
 
 function ActionButtons({
   order,
-  pending,
-  onAction,
+  runOptimistic,
 }: {
   order: ActiveOrder;
-  pending: boolean;
-  onAction: (fn: () => Promise<{ ok: true } | { ok: false; error: string }>) => void;
+  runOptimistic: (
+    orderId: string,
+    patch: Partial<ActiveOrder>,
+    fn: () => Promise<{ ok: true } | { ok: false; error: string }>
+  ) => void;
 }) {
   if (order.status === "calling_waiter") {
     return (
@@ -642,8 +691,13 @@ function ActionButtons({
           variant="ghost"
           size="lg"
           style={{ flex: 1 }}
-          onClick={() => onAction(() => dismissCallAction(order.id))}
-          disabled={pending}
+          onClick={() =>
+            runOptimistic(
+              order.id,
+              { status: "served" /* lo sacamos de la lista de "calling" */ },
+              () => dismissCallAction(order.id)
+            )
+          }
         >
           Atendí, cancelar
         </IGSButton>
@@ -651,37 +705,30 @@ function ActionButtons({
           variant="accent"
           size="lg"
           style={{ flex: 2 }}
-          onClick={() => onAction(() => confirmOrderAction(order.id))}
-          disabled={pending}
+          onClick={() =>
+            runOptimistic(
+              order.id,
+              { status: "in_kitchen", sent_to_kitchen_at: new Date().toISOString() },
+              () => confirmOrderAction(order.id)
+            )
+          }
         >
-          {pending ? "..." : "🔥 Mandar a cocina"}
+          🔥 Mandar a cocina
         </IGSButton>
       </div>
     );
   }
-  if (order.status === "in_kitchen") {
+  if (order.status === "in_kitchen" || order.status === "ready") {
     return (
       <IGSButton
-        variant="primary"
+        variant={order.status === "ready" ? "accent" : "primary"}
         size="lg"
         style={{ width: "100%" }}
-        onClick={() => onAction(() => markServedAction(order.id))}
-        disabled={pending}
+        onClick={() =>
+          runOptimistic(order.id, { status: "served" }, () => markServedAction(order.id))
+        }
       >
-        Marcar como servido
-      </IGSButton>
-    );
-  }
-  if (order.status === "ready") {
-    return (
-      <IGSButton
-        variant="accent"
-        size="lg"
-        style={{ width: "100%" }}
-        onClick={() => onAction(() => markServedAction(order.id))}
-        disabled={pending}
-      >
-        ✓ Servido
+        {order.status === "ready" ? "✓ Servido" : "Marcar como servido"}
       </IGSButton>
     );
   }
@@ -691,8 +738,13 @@ function ActionButtons({
         variant="primary"
         size="lg"
         style={{ width: "100%" }}
-        onClick={() => onAction(() => markPaidAction(order.id))}
-        disabled={pending}
+        onClick={() =>
+          runOptimistic(
+            order.id,
+            { status: "served" /* lo sacamos: el filtro no muestra paid */ },
+            () => markPaidAction(order.id)
+          )
+        }
       >
         💳 Cobrar y liberar mesa
       </IGSButton>

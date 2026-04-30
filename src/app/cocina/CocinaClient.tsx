@@ -105,21 +105,71 @@ export default function CocinaClient({ barId, initial }: Props) {
     };
   }, [supabase, barId, refresh]);
 
+  // Optimistic: aplicamos el patch al local state inmediatamente; si la action
+  // falla, refrescamos desde DB y mostramos un toast.
+  const [errorToast, setErrorToast] = useState<string | null>(null);
+
   function handleToggleItem(item: KitchenItem) {
+    const willBeReady = !item.ready_at;
+    const newReadyAt = willBeReady ? new Date().toISOString() : null;
+    // Patch optimista del item.
+    setOrders((prev) =>
+      prev.map((o) => ({
+        ...o,
+        items: o.items.map((it) =>
+          it.id === item.id ? { ...it, ready_at: newReadyAt } : it
+        ),
+        // Si todos los items quedaron listos, también optimistamente marcamos la orden ready.
+        status:
+          o.items.every((it) =>
+            it.id === item.id ? newReadyAt !== null : it.ready_at !== null
+          ) && o.items.length > 0
+            ? "ready"
+            : willBeReady
+            ? o.status
+            : o.status === "ready"
+            ? "in_kitchen"
+            : o.status,
+      }))
+    );
     setPendingId(item.id);
     startTransition(async () => {
-      const res = await toggleItemReadyAction(item.id, !item.ready_at);
+      const res = await toggleItemReadyAction(item.id, willBeReady);
       setPendingId(null);
-      if (!res.ok) alert(res.error);
+      if (!res.ok) {
+        setErrorToast(res.error);
+        refresh();
+        setTimeout(() => setErrorToast(null), 4500);
+      }
     });
   }
 
   function handleMarkAllReady(orderId: string) {
+    const nowIso = new Date().toISOString();
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              status: "ready",
+              ready_at: nowIso,
+              items: o.items.map((it) => ({
+                ...it,
+                ready_at: it.ready_at ?? nowIso,
+              })),
+            }
+          : o
+      )
+    );
     setPendingId(orderId);
     startTransition(async () => {
       const res = await markOrderReadyAction(orderId);
       setPendingId(null);
-      if (!res.ok) alert(res.error);
+      if (!res.ok) {
+        setErrorToast(res.error);
+        refresh();
+        setTimeout(() => setErrorToast(null), 4500);
+      }
     });
   }
 
@@ -229,6 +279,30 @@ export default function CocinaClient({ barId, initial }: Props) {
           50% { box-shadow: 0 0 0 8px rgba(106,158,127,0); }
         }
       `}</style>
+
+      {errorToast && (
+        <div
+          role="alert"
+          style={{
+            position: "fixed",
+            left: 16,
+            right: 16,
+            bottom: 16,
+            margin: "0 auto",
+            maxWidth: 480,
+            padding: "12px 16px",
+            background: "#a3391e",
+            color: "#fff",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 500,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+            zIndex: 60,
+          }}
+        >
+          ⚠ {errorToast}
+        </div>
+      )}
     </div>
   );
 }
